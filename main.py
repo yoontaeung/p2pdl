@@ -7,7 +7,7 @@ import torch
 
 NUM_CLIENTS = 3
 TRAINING_ROUNDS = 3
-TRAINING_EPOCHS = 5
+TRAINING_EPOCHS = 3
 
 class MLP(nn.Module):
     def __init__(self):
@@ -102,13 +102,9 @@ def main():
         t.start()
         threads.append(t)
 
+    # Wait for all threads to complete
     for t in threads:
         t.join()
-
-    # Evaluate the final aggregated model
-    # node1.evaluate()
-    # node2.evaluate()
-    # node3.evaluate()
 
 if __name__ == "__main__":
     main()
