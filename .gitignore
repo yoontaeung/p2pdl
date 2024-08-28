@@ -1,5 +1,6 @@
-# Ignore the MNIST raw data
+# Ignore the raw data
 MNIST_data/
+CIFAR10_data/
 
 # Ignore Python cache files
 __pycache__/

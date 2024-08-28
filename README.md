@@ -7,6 +7,7 @@ This project simulates a peer-to-peer decentralized learning environment with mu
 - **Incentive mechanism**: Incentive mechanism enables users to get incentives based on their training result. 
 - **Storing local updates to blockchain**: The local model updates from each node will be stored in blockchain. 
 - **Advanced model & datasets**
+- **Client selection**
 
 
 ## Installation
