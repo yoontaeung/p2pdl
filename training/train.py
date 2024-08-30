@@ -21,7 +21,7 @@ def train(self, epochs=1):
         round_losses.append(avg_loss)
         logging.debug(f"[{self.addr}:{self.port}] Average loss for the epoch: {avg_loss:.6f}")
 
-    self.send_model_to_neighbors()
+    # self.send_model_to_neighbors()
 
     round_avg_loss = sum(round_losses) / len(round_losses)
     

@@ -7,7 +7,7 @@ def evaluate(self):
     correct = 0
     total = 0
     with torch.no_grad():
-        for images, labels in self.test_data_loader:
+        for images, labels in self.data_loader:
             images, labels = images.to(self.device), labels.to(self.device)
             outputs = self.model(images)
             _, predicted = torch.max(outputs.data, 1)

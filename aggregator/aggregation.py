@@ -1,8 +1,12 @@
 import logging
+import threading
 
 def aggregate_models(self):
-    logging.debug(f"[{self.addr}:{self.port}] Aggregating local model updates ...")
-    num_models = len(self.received_models) + 1  # Include the local model
+    while len(self.received_models) < len(self.trainers_list):
+        threading.Event().wait(1)  # Small wait to avoid busy-waiting
+
+    logging.info(f"[{self.addr}:{self.port}] Aggregating local model updates ...")
+    num_models = len(self.received_models)  
     for key in self.model.state_dict():
         avg_param = self.model.state_dict()[key].clone()
         for received_model in self.received_models:
