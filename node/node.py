@@ -11,11 +11,13 @@ from p2pdl.training.train import train
 from p2pdl.aggregator.aggregation import aggregate_models, broadcast_global_model_update
 from p2pdl.evaluation.evaluation import evaluate
 from p2pdl.utils.log import save_results
+from p2pdl.utils.broadcast import send_echo
+from p2pdl.utils.crypto import KeyServer, generate_key_pair, verify_signature
 
 logging.basicConfig(level=logging.INFO)
 
 class Node:
-    def __init__(self, model, data, addr="127.0.0.1", port=12345):
+    def __init__(self, model, data, key_server, addr="127.0.0.1", port=12345):
         self.model = model
         self.data_loader = data
         self.addr = addr
@@ -30,6 +32,24 @@ class Node:
         self._stop_event = threading.Event()  # Event to signal when to stop listening
         self.trainers_list = []
         self.testers_list = []
+        self.signature_list = []
+
+        self.__private_key, self.public_key = generate_key_pair()
+        self.key_server = key_server
+        self.key_server.register_key(self.addr, self.port, self.public_key)
+
+        self.brb_delivered_event = threading.Event()
+
+    def reset_delivered_flag(self):
+        self.brb_delivered_event.clear()
+
+    def set_delivered_flag(self):
+        self.brb_delivered_event.set()
+
+    def wait_for_delivered(self):
+        logging.info(f"[{self.addr}:{self.port}] Waiting for all echo and ready messages delivered ...")
+        self.brb_delivered_event.wait()
+        logging.info(f"[{self.addr}:{self.port}] All messages delivered, proceeding...")
 
     def start(self):
         self._stop_event.clear()
@@ -73,10 +93,43 @@ class Node:
                     if neighbor_info not in self.neighbors:
                         self.neighbors.append(neighbor_info)
                         logging.debug(f"Connected to {neighbor_info[0]}:{neighbor_info[1]}")
+
                 elif command['type'] == 'model_update':
+                    """
+                    Tester receives 'model_update' message. 
+                    """
                     received_model_state = command['model']
-                    self.received_models.append(received_model_state)
-                    logging.debug(f"[{self.addr}:{self.port}] Received model update from {command['addr']}:{command['port']} ...")
+                    trainer_sender = (command['addr'], command['port'])
+
+                    self.received_models.append({'model': received_model_state, 'sender': trainer_sender})
+                    logging.debug(f"[{self.addr}:{self.port}] Received model update from {trainer_sender[0]}:{trainer_sender[1]} ...")
+                    
+                    send_echo(self.__private_key, received_model_state, trainer_sender[0], trainer_sender[1], self.addr, self.port)
+
+                elif command['type'] == 'echo':
+                    signature = command['signature']
+                    tester_addr = command['addr']
+                    tester_port = command['port']
+
+                    # Find the model state corresponding to the current node's identity in self.received_models
+                    model_state = None
+                    for entry in self.received_models:
+                        if entry['sender'] == (self.addr, self.port):
+                            model_state = entry['model']
+                            break
+
+                    # logging.info(f"[{self.addr}:{self.port}] received models {self.received_models}")
+                    logging.info(f"[{self.addr}:{self.port}] Who sends ECHO message? -> {tester_addr}:{tester_port}")
+
+                    if model_state is None:
+                        print("Model is None")
+                    elif verify_signature(self.key_server, tester_addr, tester_port, model_state, signature):
+                        logging.info(f"[{self.addr}:{self.port}] Signature verified for echo from {tester_addr}:{tester_port}")
+                    else:
+                        logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {tester_addr}:{tester_port}")
+                ## elif command['type'] == 'sup':
+                    ## if the sup messages are delivered more than 2f+1, then
+                    ## set_delivered_flag()
                 elif command['type'] == 'global_model_update':
                     global_model_state = command['model']
                     self.model.load_state_dict(global_model_state)
@@ -99,20 +152,10 @@ class Node:
                 logging.debug(f"[{self.addr}:{self.port}] Connected to {addr}:{port}")
         except Exception as e:
             logging.error(f"[{self.addr}:{self.port}] Error connecting to {addr}:{port}: {e}")
-
-    # def send_model_to_neighbors(self):
-    #     model_state = self.model.state_dict()
-    #     data = pickle.dumps({'type': 'model_update', 'model': model_state, 'addr': self.addr, 'port': self.port})
-    #     msg_len = len(data)
-    #     for neighbor in self.neighbors:
-    #         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    #             s.connect((neighbor.addr, neighbor.port))
-    #             s.sendall(msg_len.to_bytes(4, byteorder='big'))
-    #             s.sendall(data)
-    #             logging.debug(f"Sent model update to {neighbor.addr}:{neighbor.port}")
     
     def send_model_to_testers(self):
         model_state = self.model.state_dict()
+        self.received_models.append({'model': model_state, 'sender': (self.addr, self.port)})       # Tester stores its own trained model update for future verification
         data = pickle.dumps({'type': 'model_update', 'model': model_state, 'addr': self.addr, 'port': self.port})
         msg_len = len(data)
         for tester in self.testers_list:
@@ -126,8 +169,8 @@ class Node:
         aggregate_models(self)
         evaluate(self)
 
-    def broadcast_global_model_update(self):
-        broadcast_global_model_update(self)
+    # def broadcast_global_model_update(self):
+    #     broadcast_global_model_update(self)
 
     def set_start_learning(self, rounds=1, epochs=1, threshold=1e-3):
         self.running = True
@@ -139,47 +182,3 @@ class Node:
         self.send_model_to_testers()
 
         logging.debug(f"=== Round  at {self.addr}:{self.port} complete... ===")
-        # while len(self.received_models) < len(self.neighbors):
-        #     threading.Event().wait(1)  # Small wait to avoid busy-waiting
-
-        # logging.debug(f"[{self.addr}:{self.port}] Received all model updates ...")
-        
-        # aggregate_models(self)
-
-        # self.received_models.clear()
-
-        # evaluate(self)
-
-        # Calculate gradient divergence and compress the model state
-        # current_model_state = self.model.state_dict()
-        # compressed_model_state = {}
-        # divergence_info = {}
-
-        # if previous_model_state is not None:
-        #     for key in current_model_state:
-        #         difference = torch.abs(current_model_state[key] - previous_model_state[key])
-
-        #         divergence = torch.norm(difference).item()
-        #         divergence_info[key] = divergence
-
-        #         if divergence > threshold:
-        #             compressed_model_state[key] = current_model_state[key].tolist()
-        #             previous_model_state[key] = current_model_state[key].clone()
-        # else:
-        #     compressed_model_state = {key: value.tolist() for key, value in current_model_state.items()}
-        #     previous_model_state = current_model_state.copy()
-
-        # result_data = {
-        #     "node": self.addr,
-        #     "port": self.port,
-        #     "round": round_num,
-        #     "average_loss": round_avg_loss,
-        #     "model_state": compressed_model_state,
-        #     "divergence": divergence_info  
-        # }
-
-        # result_file = f"results_{self.port}.json"
-        
-        # save_results(result_data, result_file)
-
-        # self.stop()

@@ -1,6 +1,7 @@
 import logging
 import pickle
 import socket
+import torch
 from p2pdl.utils.waiting import wait_for_models
 
 def aggregate_models(self):
@@ -19,7 +20,7 @@ def aggregate_models(self):
         self.model.state_dict()[key].copy_(avg_param)
     logging.debug(f"[{self.addr}:{self.port}] Model aggregation completed ...")
 
-    self.broadcast_global_model_update()
+    broadcast_global_model_update(self)
 
 def broadcast_global_model_update(self):
     # Broadcast the aggregated model to all peers. 
