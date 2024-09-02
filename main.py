@@ -17,11 +17,11 @@ def main():
     data_loaders = load_data(NUM_CLIENTS, dataset_name='CIFAR10')
 
     # Initialize nodes with the model and data loaders, with different ports
-    node1 = Node(model=SimpleCNN(),data=data_loaders[0], addr="127.0.0.1",port=6001)
-    node2 = Node(model=SimpleCNN(),data=data_loaders[1], addr="127.0.0.1",port=6002)
-    node3 = Node(model=SimpleCNN(),data=data_loaders[2], addr="127.0.0.1",port=6003)
-    node4 = Node(model=SimpleCNN(),data=data_loaders[3], addr="127.0.0.1",port=6004)
-    node5 = Node(model=SimpleCNN(),data=data_loaders[4], addr="127.0.0.1",port=6005)
+    node1 = Node(model=SimpleCNN(),data=data_loaders[0], addr="127.0.0.1",port=5001)
+    node2 = Node(model=SimpleCNN(),data=data_loaders[1], addr="127.0.0.1",port=5002)
+    node3 = Node(model=SimpleCNN(),data=data_loaders[2], addr="127.0.0.1",port=5003)
+    node4 = Node(model=SimpleCNN(),data=data_loaders[3], addr="127.0.0.1",port=5004)
+    node5 = Node(model=SimpleCNN(),data=data_loaders[4], addr="127.0.0.1",port=5005)
     
     for node in [node1, node2, node3, node4, node5]:
         node.start()

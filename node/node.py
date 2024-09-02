@@ -138,6 +138,7 @@ class Node:
 
         self.send_model_to_testers()
 
+        logging.debug(f"=== Round  at {self.addr}:{self.port} complete... ===")
         # while len(self.received_models) < len(self.neighbors):
         #     threading.Event().wait(1)  # Small wait to avoid busy-waiting
 
@@ -180,7 +181,5 @@ class Node:
         # result_file = f"results_{self.port}.json"
         
         # save_results(result_data, result_file)
-        
-        logging.debug(f"=== Round  at {self.addr}:{self.port} complete... ===")
 
         # self.stop()
