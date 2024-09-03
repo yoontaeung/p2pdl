@@ -1,9 +1,7 @@
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
-import pickle
-
-# p2pdl/utils/key_server.py
+import logging
 
 class KeyServer:
     def __init__(self):
@@ -16,68 +14,72 @@ class KeyServer:
         node_id = (addr, port)
         if node_id not in self.public_key_store:
             self.public_key_store[node_id] = public_key
-            print(f"Public key registered for {addr}:{port}")
+            logging.debug(f"Public key registered for {addr}:{port}")
+            logging.debug(f"Current key store: {self.public_key_store}")
         else:
-            print(f"Public key already exists for {addr}:{port}")
+            logging.warning(f"Public key already exists for {addr}:{port}")
+            logging.debug(f"Current key store: {self.public_key_store}")
 
     def get_key(self, addr, port):
         """
         Retrieve the public key for a given node.
         """
-        return self.public_key_store.get((addr, port))
+        # logging.info(f"Retrieving key for {addr}:{port}")
+        key = self.public_key_store.get((addr, port))
+        if key:
+            logging.debug(f"Public key found: {key}")
+        else:
+            logging.warning(f"Public key not found for {addr}:{port}")
+        return key
 
     def get_all_keys(self):
         """
         Retrieve all public keys.
         """
         return self.public_key_store
-    
+
 def generate_key_pair():
     """
-    Generate an RSA key pair.
+    Generate an ECDSA key pair using the SECP256R1 curve.
     """
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
+    private_key = ec.generate_private_key(ec.SECP256R1())
     public_key = private_key.public_key()
     return private_key, public_key
 
 def sign_data(private_key, data):
     """
-    Sign the data using the provided private key.
+    Sign the data using the provided private key (ECDSA).
     """
     signature = private_key.sign(
-        pickle.dumps(data),
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        hashes.SHA256()
+        data,
+        ec.ECDSA(hashes.SHA256())
     )
+    # logging.info(f"Data signed. Signature: {signature.hex()}")
     return signature
 
 def verify_signature(key_server, addr, port, serialized_data, signature):
     """
     Verify the signature of the serialized data using the sender's public key retrieved from the key server.
     """
-    public_key = key_server.get_key(addr, port)
+    # logging.info(f"Starting signature verification for {addr}:{port}")
     
+    # Fetch the public key from the key server
+    public_key = key_server.get_key(addr, port)
     if not public_key:
-        print(f"Public key for {addr}:{port} not found.")
+        logging.error(f"Public key for {addr}:{port} not found.")
+        logging.info(f"Key Server contents: {key_server.get_all_keys()}")
         return False
 
     try:
+        # Attempt to verify the signature
         public_key.verify(
             signature,
             serialized_data,  # Use the serialized data directly without re-serializing
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
+            ec.ECDSA(hashes.SHA256())
         )
+        # logging.info(f"Signature successfully verified for {addr}:{port}")
         return True
     except Exception as e:
-        print(f"Signature verification failed for {addr}:{port}: {e}")
+        logging.error(f"Signature verification failed for {addr}:{port}: {e}")
+        # logging.info(f"Signature: {signature.hex()}, Data length: {len(serialized_data)}")
         return False

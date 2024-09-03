@@ -11,7 +11,7 @@ from p2pdl.training.train import train
 from p2pdl.aggregator.aggregation import aggregate_models, broadcast_global_model_update
 from p2pdl.evaluation.evaluation import evaluate
 from p2pdl.utils.log import save_results
-from p2pdl.utils.broadcast import send_echo
+from p2pdl.utils.broadcast import send_echo, send_ready
 from p2pdl.utils.crypto import KeyServer, generate_key_pair, verify_signature
 
 logging.basicConfig(level=logging.INFO)
@@ -33,12 +33,16 @@ class Node:
         self.trainers_list = []
         self.testers_list = []
         self.signature_list = []
+        self.serialized_state = None
 
         self.__private_key, self.public_key = generate_key_pair()
         self.key_server = key_server
         self.key_server.register_key(self.addr, self.port, self.public_key)
 
         self.brb_delivered_event = threading.Event()
+        self.received_echo_cnt = 0
+        self.sent_ready = False
+        self.received_ready_cnt = 0
 
     def reset_delivered_flag(self):
         self.brb_delivered_event.clear()
@@ -104,29 +108,52 @@ class Node:
                     self.received_models.append({'model': received_model_state, 'sender': trainer_sender})
                     logging.debug(f"[{self.addr}:{self.port}] Received model update from {trainer_sender[0]}:{trainer_sender[1]} ...")
                     
-                    send_echo(self.__private_key, received_model_state, trainer_sender[0], trainer_sender[1], self.addr, self.port)
+                    send_echo(self.key_server, self.__private_key, received_model_state, trainer_sender[0], trainer_sender[1], self.addr, self.port)
 
                 elif command['type'] == 'echo':
                     signature = command['signature']
-                    tester_addr = command['addr']
-                    tester_port = command['port']
+                    sender_addr = command['addr']
+                    sender_port = command['port']
+                    serialized_state = command['serialized_state']
+                    # model_state = None
+                    # for entry in self.received_models:
+                    #     if entry['sender'] == (self.addr, self.port):
+                    #         model_state = entry['model']
+                    #         break
+                    model_state = self.model.state_dict()
 
-                    # Find the model state corresponding to the current node's identity in self.received_models
-                    model_state = None
-                    for entry in self.received_models:
-                        if entry['sender'] == (self.addr, self.port):
-                            model_state = entry['model']
-                            break
-
-                    # logging.info(f"[{self.addr}:{self.port}] received models {self.received_models}")
-                    logging.info(f"[{self.addr}:{self.port}] Who sends ECHO message? -> {tester_addr}:{tester_port}")
-
+                    ## TODO: Use a local model update for verification, not from echo message
                     if model_state is None:
-                        print("Model is None")
-                    elif verify_signature(self.key_server, tester_addr, tester_port, model_state, signature):
-                        logging.info(f"[{self.addr}:{self.port}] Signature verified for echo from {tester_addr}:{tester_port}")
+                        print("Model state is None")
+                    if verify_signature(self.key_server, sender_addr, sender_port, serialized_state, signature):
+                        logging.info(f"[{self.addr}:{self.port}] Signature verified for echo from {sender_addr}:{sender_port}")
+                        self.received_echo_cnt += 1
                     else:
-                        logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {tester_addr}:{tester_port}")
+                        logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {sender_addr}:{sender_port}")
+                    ## TODO: Complete the logic
+                    if self.received_echo_cnt >= 3 and self.sent_ready is False:
+                        send_ready()
+                # elif command['type'] == 'echo':
+                #     signature = command['signature']
+                #     tester_addr = command['addr']
+                #     tester_port = command['port']
+
+                #     # Find the model state corresponding to the current node's identity in self.received_models
+                #     model_state = None
+                #     for entry in self.received_models:
+                #         if entry['sender'] == (self.addr, self.port):
+                #             model_state = entry['model']
+                #             break
+
+                #     # logging.info(f"[{self.addr}:{self.port}] received models {self.received_models}")
+                #     logging.info(f"[{self.addr}:{self.port}] Who sends ECHO message? -> {tester_addr}:{tester_port}")
+
+                #     if model_state is None:
+                #         print("Model is None")
+                #     elif verify_signature(self.key_server, tester_addr, tester_port, model_state, signature):
+                #         logging.info(f"[{self.addr}:{self.port}] Signature verified for echo from {tester_addr}:{tester_port}")
+                #     else:
+                #         logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {tester_addr}:{tester_port}")
                 ## elif command['type'] == 'sup':
                     ## if the sup messages are delivered more than 2f+1, then
                     ## set_delivered_flag()
@@ -155,6 +182,9 @@ class Node:
     
     def send_model_to_testers(self):
         model_state = self.model.state_dict()
+        # Serialize the model state immediately after update
+        serialized_state = pickle.dumps(model_state)
+        self.serialized_state = serialized_state  # Store the serialized state
         self.received_models.append({'model': model_state, 'sender': (self.addr, self.port)})       # Tester stores its own trained model update for future verification
         data = pickle.dumps({'type': 'model_update', 'model': model_state, 'addr': self.addr, 'port': self.port})
         msg_len = len(data)
