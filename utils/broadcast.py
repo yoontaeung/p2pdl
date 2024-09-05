@@ -50,35 +50,34 @@ def send_echo(key_server, private_key, received_model_state, trainer_sender_addr
     except Exception as e:
         logging.error(f"[{addr}:{trainer_sender_addr}] Unexpected error in send_echo: {e}")
         
-def send_ready(private_key, received_model_state, sender_addr, sender_port):
+def send_ready(signature_list, testers_list, addr, port):
     """
-    Signs the received model state and unicasts an echo message to the sender (trainer).
+    A trainer sends a signature list to testers
+    addr: IP address of trainer
     """
     try:
         # Ensure the received_model_state is serialized before signing
-        serialized_state = pickle.dumps(received_model_state)
-
-        # Generate a digital signature for the received model state
-        signature = sign_data(private_key, serialized_state)
+        # serialized_state = pickle.dumps(signature_list)
 
         # Prepare the echo message with the signature
         data = pickle.dumps({
             'type': 'ready',
-            'signature': signature,
-            'addr': sender_addr,
-            'port': sender_port
+            'signature_list': signature_list,
+            'addr': addr,
+            'port': port,
         })
         msg_len = len(data)
 
-        # Unicast the echo message back to the original sender
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((sender_addr, sender_port))
-            s.sendall(msg_len.to_bytes(4, byteorder='big'))
-            s.sendall(data)
-            # logging.info(f"Sent echo to {sender_addr}:{sender_port}")
+        # Multicast the echo message back to the original sender
+        for tester in testers_list:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((tester.addr, tester.port))
+                s.sendall(msg_len.to_bytes(4, byteorder='big'))
+                s.sendall(data)
+                logging.debug(f"Sent echo to {tester.addr}:{tester.port}")
 
     except (pickle.PicklingError, socket.error) as e:
-        logging.error(f"Error during send_echo operation to {sender_addr}:{sender_port}: {e}")
+        logging.error(f"Error during send_error operation from {addr}:{port}: {e}")
     except Exception as e:
         logging.error(f"Unexpected error in send_echo: {e}")
 

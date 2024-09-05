@@ -41,8 +41,11 @@ class Node:
 
         self.brb_delivered_event = threading.Event()
         self.received_echo_cnt = 0
+        self.recevied_ready_cnt = 0
+        self.received_sup_cnt = 0
         self.sent_ready = False
-        self.received_ready_cnt = 0
+        self.sent_sup = False
+    
 
     def reset_delivered_flag(self):
         self.brb_delivered_event.clear()
@@ -126,37 +129,34 @@ class Node:
                     if model_state is None:
                         print("Model state is None")
                     if verify_signature(self.key_server, sender_addr, sender_port, serialized_state, signature):
-                        logging.info(f"[{self.addr}:{self.port}] Signature verified for echo from {sender_addr}:{sender_port}")
+                        logging.debug(f"[{self.addr}:{self.port}] Signature verified for echo from {sender_addr}:{sender_port}")
                         self.received_echo_cnt += 1
+                        self.signature_list.append(signature)
                     else:
                         logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {sender_addr}:{sender_port}")
                     ## TODO: Complete the logic
                     if self.received_echo_cnt >= 3 and self.sent_ready is False:
-                        send_ready()
-                # elif command['type'] == 'echo':
-                #     signature = command['signature']
-                #     tester_addr = command['addr']
-                #     tester_port = command['port']
+                        send_ready(self.signature_list, self.testers_list, self.addr, self.port)
+                        self.sent_ready = True
+                
+                elif command['type'] == 'ready':
+                    # if the sup messages are delivered more than 2f+1, then
+                    # set_delivered_flag()
+                    signature_list = command['signature_list']
+                    sender_addr = command['addr']
+                    sender_port = command['port']
+                    logging.debug(f"[{self.addr}:{self.port}] Received Ready Message from {sender_addr}:{sender_port} ...")
 
-                #     # Find the model state corresponding to the current node's identity in self.received_models
-                #     model_state = None
-                #     for entry in self.received_models:
-                #         if entry['sender'] == (self.addr, self.port):
-                #             model_state = entry['model']
-                #             break
+                    ## TODO: Verify each sig in signature_list and send_sup 
+                    for tester in self.testers_list:
+                        for signature in signature_list:                   
+                            if verify_signature(self.key_server, tester.addr, tester.port, serialized_state, signature):
+                                logging.debug(f"[{self.addr}:{self.port}] Signature verified for ready from {tester.addr}:{tester.port}")
+                                self.received_ready_cnt += 1
+                            else:
+                                logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for ready from {tester.addr}:{tester.port}")
+             
 
-                #     # logging.info(f"[{self.addr}:{self.port}] received models {self.received_models}")
-                #     logging.info(f"[{self.addr}:{self.port}] Who sends ECHO message? -> {tester_addr}:{tester_port}")
-
-                #     if model_state is None:
-                #         print("Model is None")
-                #     elif verify_signature(self.key_server, tester_addr, tester_port, model_state, signature):
-                #         logging.info(f"[{self.addr}:{self.port}] Signature verified for echo from {tester_addr}:{tester_port}")
-                #     else:
-                #         logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {tester_addr}:{tester_port}")
-                ## elif command['type'] == 'sup':
-                    ## if the sup messages are delivered more than 2f+1, then
-                    ## set_delivered_flag()
                 elif command['type'] == 'global_model_update':
                     global_model_state = command['model']
                     self.model.load_state_dict(global_model_state)
