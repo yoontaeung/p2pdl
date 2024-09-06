@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 class Node:
     def __init__(self, model, data, key_server, addr="127.0.0.1", port=12345):
         self.model = model
+        self.previous_model_state = None
         self.data_loader = data
         self.addr = addr
         self.port = port
@@ -226,21 +227,57 @@ class Node:
                 logging.debug(f"[{self.addr}:{self.port}] Connected to {addr}:{port}")
         except Exception as e:
             logging.error(f"[{self.addr}:{self.port}] Error connecting to {addr}:{port}: {e}")
-    
+
     def send_model_to_testers(self):
-        model_state = self.model.state_dict()
-        # Serialize the model state immediately after update
-        serialized_state = pickle.dumps(model_state)
-        self.serialized_state = serialized_state  # Store the serialized state
-        self.received_models.append({'model': model_state, 'sender': (self.addr, self.port)})       # Tester stores its own trained model update for future verification
-        data = pickle.dumps({'type': 'model_update', 'model': model_state, 'addr': self.addr, 'port': self.port})
+        # Get the current model state
+        current_model_state = self.model.state_dict()
+
+        # Initialize local update dictionary
+        local_update = {}
+
+        # If this is the first round and previous_model_state is None, we initialize it
+        if self.previous_model_state is None:
+            # For the first round, there is no "previous state" so we consider the whole current state as the update
+            logging.debug(f"[{self.addr}:{self.port}] First round, sending full model state as local update.")
+            local_update = {key: current_model_state[key] for key in current_model_state}
+        else:
+            # Compute the local update as the difference between the current and previous model states
+            for key in current_model_state:
+                local_update[key] = current_model_state[key] - self.previous_model_state[key]
+
+        # Serialize the local update
+        serialized_update = pickle.dumps(local_update)
+        
+        # Store the current model state as the previous one for the next round
+        self.previous_model_state = {key: value.clone() for key, value in current_model_state.items()}
+
+        # Send the local update to testers
+        data = pickle.dumps({'type': 'model_update', 'model': local_update, 'addr': self.addr, 'port': self.port})
         msg_len = len(data)
+    
         for tester in self.testers_list:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((tester.addr, tester.port))
                 s.sendall(msg_len.to_bytes(4, byteorder='big'))
                 s.sendall(data)
-                logging.debug(f"Sent model update to {tester.addr}:{tester.port}")
+                logging.debug(f"Sent local update to {tester.addr}:{tester.port}")
+
+            # Update the previous model state to the current state after sending
+        # self.previous_model_state = current_model_state.copy()
+    # def send_model_to_testers(self):
+    #     model_state = self.model.state_dict()
+    #     # Serialize the model state immediately after update
+    #     serialized_state = pickle.dumps(model_state)
+    #     self.serialized_state = serialized_state  # Store the serialized state
+    #     self.received_models.append({'model': model_state, 'sender': (self.addr, self.port)})       # Tester stores its own trained model update for future verification
+    #     data = pickle.dumps({'type': 'model_update', 'model': model_state, 'addr': self.addr, 'port': self.port})
+    #     msg_len = len(data)
+    #     for tester in self.testers_list:
+    #         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    #             s.connect((tester.addr, tester.port))
+    #             s.sendall(msg_len.to_bytes(4, byteorder='big'))
+    #             s.sendall(data)
+    #             logging.debug(f"Sent model update to {tester.addr}:{tester.port}")
 
     def testing(self):
         aggregate_models(self)
@@ -251,11 +288,7 @@ class Node:
 
     def set_start_learning(self, rounds=1, epochs=1, threshold=1e-3):
         self.running = True
-        previous_model_state = None
-
-        logging.debug(f"=== Round at {self.addr}:{self.port} begin... ===")
         round_avg_loss = train(self, epochs)
 
         self.send_model_to_testers()
 
-        logging.debug(f"=== Round  at {self.addr}:{self.port} complete... ===")

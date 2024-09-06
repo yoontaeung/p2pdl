@@ -10,7 +10,7 @@ from p2pdl.utils.crypto import KeyServer
 app = Flask(__name__)
 
 NUM_CLIENTS = 7
-TRAINING_ROUNDS = 2
+TRAINING_ROUNDS = 5
 TRAINING_EPOCHS = 5
 
 nodes = []
@@ -22,7 +22,7 @@ data_loaders = load_data(NUM_CLIENTS, dataset_name='MNIST')
 def initialize_nodes():
     global nodes
     nodes = [
-        Node(model=MLP(), data=data_loaders[i], key_server=key_server, addr="127.0.0.1", port=6001 + i)
+        Node(model=MLP(), data=data_loaders[i], key_server=key_server, addr="127.0.0.1", port=7001 + i)
         for i in range(NUM_CLIENTS)
     ]
     
