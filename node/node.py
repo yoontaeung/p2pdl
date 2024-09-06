@@ -138,6 +138,7 @@ class Node:
                     
                     if model_state is None:
                         print("Model state is None")
+                        return
                     if verify_signature(self.key_server, sender_addr, sender_port, serialized_state, signature):
                         logging.debug(f"[{self.addr}:{self.port}] Signature verified for echo from {sender_addr}:{sender_port}")
                         self.received_echo_cnt += 1
