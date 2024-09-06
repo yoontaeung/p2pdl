@@ -244,7 +244,7 @@ class Node:
 
     def testing(self):
         aggregate_models(self)
-        evaluate(self)
+        return evaluate(self)
 
     # def broadcast_global_model_update(self):
     #     broadcast_global_model_update(self)

@@ -10,10 +10,11 @@ from p2pdl.utils.crypto import KeyServer
 app = Flask(__name__)
 
 NUM_CLIENTS = 7
-TRAINING_ROUNDS = 10
+TRAINING_ROUNDS = 2
 TRAINING_EPOCHS = 5
 
 nodes = []
+learning_progress = []
 key_server = KeyServer()
 data_loaders = load_data(NUM_CLIENTS, dataset_name='MNIST')
 
@@ -43,42 +44,69 @@ def start_learning_concurrently(node, rounds, epochs):
 # 학습을 시작하는 엔드포인트
 @app.route("/start_training", methods=["POST"])
 def start_training():
-    selected_trainers = random.sample(nodes, 3)
-    remaining_nodes = [node for node in nodes if node not in selected_trainers]
-    selected_testers = remaining_nodes
-    
-    for trainer in selected_trainers:
-        trainer.trainers_list = selected_trainers
-        trainer.testers_list = selected_testers
-    
-    for tester in selected_testers:
-        tester.trainers_list = selected_trainers
-        tester.testers_list = selected_testers
+    global learning_progress
+    learning_progress = []  # Clear the list at the start of training
 
-    # 모든 노드의 delivered flag 초기화
-    for node in nodes:
-        node.reset_delivered_flag()
+    for training_round in range(TRAINING_ROUNDS):
+        
+        selected_trainers = random.sample(nodes, 3)
+        remaining_nodes = [node for node in nodes if node not in selected_trainers]
+        selected_testers = remaining_nodes
 
-    # 학습 쓰레드 시작
-    threads = []
-    for trainer in selected_trainers:
-        t = threading.Thread(target=start_learning_concurrently, args=(trainer, 1, TRAINING_EPOCHS))
-        t.start()
-        threads.append(t)
+        # Store trainer identities for this round
+        trainers_info = [f"{trainer.addr}:{trainer.port}" for trainer in selected_trainers]
 
-    # 모든 쓰레드 완료 대기
-    for t in threads:
-        t.join()
+        for trainer in selected_trainers:
+            trainer.trainers_list = selected_trainers
+            trainer.testers_list = selected_testers
 
-    # delivered flag 대기
-    for tester in selected_testers:
-        tester.wait_for_delivered()
+        for tester in selected_testers:
+            tester.trainers_list = selected_trainers
+            tester.testers_list = selected_testers
 
-    # 테스트 노드들이 학습 결과 평가
-    for tester in selected_testers:
-        tester.testing()
+        # Reset delivered flag for all nodes
+        for node in nodes:
+            node.reset_delivered_flag()
 
-    return jsonify({"message": "Training round completed"})
+        # Start training threads
+        threads = []
+        for trainer in selected_trainers:
+            t = threading.Thread(target=start_learning_concurrently, args=(trainer, 1, TRAINING_EPOCHS))
+            t.start()
+            threads.append(t)
+
+        # Wait for all threads to finish
+        for t in threads:
+            t.join()
+
+        # Wait for delivered flag for testers
+        for tester in selected_testers:
+            tester.wait_for_delivered()
+
+        # Gather accuracy from testers and store in learning progress
+        accuracies = [tester.testing().get('accuracy', 0) for tester in selected_testers]  # Adjusted
+
+        # Append the round data to learning progress
+        learning_progress.append({
+            'round': training_round + 1,  # 1-based round index
+            'trainers': trainers_info,
+            'accuracies': accuracies
+        })
+
+    # Format the learning progress as required
+    final_progress = {
+        f'round_{progress["round"]}': {
+            'trainers': progress['trainers'],
+            'accuracies': [f'{accuracy:.2f}%' for accuracy in progress['accuracies']]
+        }
+        for progress in learning_progress
+    }
+
+    # Return the final formatted progress in JSON format
+    return jsonify({
+        "message": f"Training completed after {TRAINING_ROUNDS} rounds",
+        "learning_progress": final_progress
+    })
 
 # 노드 상태를 확인하는 엔드포인트
 @app.route("/status", methods=["GET"])

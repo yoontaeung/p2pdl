@@ -17,3 +17,8 @@ def evaluate(self):
     accuracy = 100 * correct / total
     logging.info(f"[{self.addr}:{self.port}] Model accuracy: {accuracy:.2f}%")
     self.received_models.clear()
+    return {
+        "accuracy": round(accuracy, 2),
+        "addr": self.addr,
+        "port": self.port
+    }
