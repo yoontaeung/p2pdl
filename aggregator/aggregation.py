@@ -15,7 +15,7 @@ def aggregate_models(self):
     for key in self.model.state_dict():
         avg_param = self.model.state_dict()[key].clone()
         for received_model in self.received_models:
-            avg_param += received_model[key]
+            avg_param += received_model['model'][key]
         avg_param /= num_models
         self.model.state_dict()[key].copy_(avg_param)
     logging.debug(f"[{self.addr}:{self.port}] Model aggregation completed ...")

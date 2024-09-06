@@ -50,7 +50,7 @@ def send_echo(key_server, private_key, received_model_state, trainer_sender_addr
     except Exception as e:
         logging.error(f"[{addr}:{trainer_sender_addr}] Unexpected error in send_echo: {e}")
         
-def send_ready(signature_list, testers_list, addr, port):
+def send_ready(signature_list, testers_list, addr, port, sender_list):
     """
     A trainer sends a signature list to testers
     addr: IP address of trainer
@@ -65,6 +65,7 @@ def send_ready(signature_list, testers_list, addr, port):
             'signature_list': signature_list,
             'addr': addr,
             'port': port,
+            'sender_list': sender_list,
         })
         msg_len = len(data)
 
@@ -81,3 +82,35 @@ def send_ready(signature_list, testers_list, addr, port):
     except Exception as e:
         logging.error(f"Unexpected error in send_echo: {e}")
 
+def send_sup(signature_list, model_update, addr, port, tester_addr, tester_port):
+    """
+    send_sup(signature_list, self.model.state_dict(), self.addr, self.port, tester.addr, tester.port)
+
+    A trainer sends a signature list to testers
+    addr: IP address of trainer
+    """
+    try:
+        # Ensure the received_model_state is serialized before signing
+        # serialized_state = pickle.dumps(signature_list)
+
+        # Prepare the echo message with the signature
+        data = pickle.dumps({
+            'type': 'sup',
+            'signature_list': signature_list,
+            'addr': addr,
+            'port': port,
+            'model_update': model_update
+        })
+        msg_len = len(data)
+
+        # Unicast the echo message back to the original sender
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((tester_addr, tester_port))
+            s.sendall(msg_len.to_bytes(4, byteorder='big'))
+            s.sendall(data)
+            logging.debug(f"Sent sup to {tester_addr}:{tester_port}")
+
+    except (pickle.PicklingError, socket.error) as e:
+        logging.error(f"Error during send_sup error operation from {addr}:{port}: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error in send_sup: {e}")

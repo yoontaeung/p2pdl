@@ -6,12 +6,13 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.utils
+import time
 
 from p2pdl.training.train import train
 from p2pdl.aggregator.aggregation import aggregate_models, broadcast_global_model_update
 from p2pdl.evaluation.evaluation import evaluate
 from p2pdl.utils.log import save_results
-from p2pdl.utils.broadcast import send_echo, send_ready
+from p2pdl.utils.broadcast import send_echo, send_ready, send_sup
 from p2pdl.utils.crypto import KeyServer, generate_key_pair, verify_signature
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,7 @@ class Node:
         self.trainers_list = []
         self.testers_list = []
         self.signature_list = []
+        self.sender_list = []
         self.serialized_state = None
 
         self.__private_key, self.public_key = generate_key_pair()
@@ -41,22 +43,32 @@ class Node:
 
         self.brb_delivered_event = threading.Event()
         self.received_echo_cnt = 0
-        self.recevied_ready_cnt = 0
+        self.received_ready_cnt = 0
         self.received_sup_cnt = 0
         self.sent_ready = False
         self.sent_sup = False
+        self.delivered = False
     
 
     def reset_delivered_flag(self):
+        self.sent_ready = False
+        self.sent_sup = False
+        self.delivered = False
+        self.received_echo_cnt = 0
+        self.received_ready_cnt = 0
+        self.received_sup_cnt = 0
+        self.signature_list = []
+        self.sender_list = []
+        self.received_models = []
         self.brb_delivered_event.clear()
 
     def set_delivered_flag(self):
         self.brb_delivered_event.set()
 
     def wait_for_delivered(self):
-        logging.info(f"[{self.addr}:{self.port}] Waiting for all echo and ready messages delivered ...")
+        logging.debug(f"[{self.addr}:{self.port}] Waiting for all echo and ready messages delivered ...")
         self.brb_delivered_event.wait()
-        logging.info(f"[{self.addr}:{self.port}] All messages delivered, proceeding...")
+        logging.debug(f"[{self.addr}:{self.port}] All messages delivered, proceeding...")
 
     def start(self):
         self._stop_event.clear()
@@ -118,45 +130,79 @@ class Node:
                     sender_addr = command['addr']
                     sender_port = command['port']
                     serialized_state = command['serialized_state']
-                    # model_state = None
-                    # for entry in self.received_models:
-                    #     if entry['sender'] == (self.addr, self.port):
-                    #         model_state = entry['model']
-                    #         break
+             
                     model_state = self.model.state_dict()
 
                     ## TODO: Use a local model update for verification, not from echo message
+                    # sender_list = []   # sender_list contains a list of testers who send echo msg
+                    
                     if model_state is None:
                         print("Model state is None")
                     if verify_signature(self.key_server, sender_addr, sender_port, serialized_state, signature):
                         logging.debug(f"[{self.addr}:{self.port}] Signature verified for echo from {sender_addr}:{sender_port}")
                         self.received_echo_cnt += 1
                         self.signature_list.append(signature)
+                        self.sender_list.append({'addr': sender_addr, 'port': sender_port})  
                     else:
                         logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for echo from {sender_addr}:{sender_port}")
-                    ## TODO: Complete the logic
+                    ## TODO: Complete the logic. Quorum, 2f+1. Wait for all messages. 
                     if self.received_echo_cnt >= 3 and self.sent_ready is False:
-                        send_ready(self.signature_list, self.testers_list, self.addr, self.port)
+                        send_ready(self.signature_list, self.testers_list, self.addr, self.port, self.sender_list)
                         self.sent_ready = True
                 
                 elif command['type'] == 'ready':
-                    # if the sup messages are delivered more than 2f+1, then
-                    # set_delivered_flag()
+                    # Received a 'ready' message from another node (trainer)
                     signature_list = command['signature_list']
-                    sender_addr = command['addr']
-                    sender_port = command['port']
+                    sender_addr = command['addr']   # Trainer's addr
+                    sender_port = command['port']   # Trainer's port
+                    sender_list = command['sender_list']  # List of senders who sent echo messages
                     logging.debug(f"[{self.addr}:{self.port}] Received Ready Message from {sender_addr}:{sender_port} ...")
+                    
+                    # Print the content of sender_list and self.testers_list for debugging purposes
+                    logging.debug(f"[{self.addr}:{self.port}] Sender_list content: {sender_list}")
+                    logging.debug(f"[{self.addr}:{self.port}] Testers_list content: {[(tester.addr, tester.port) for tester in self.testers_list]}")
 
-                    ## TODO: Verify each sig in signature_list and send_sup 
-                    for tester in self.testers_list:
-                        for signature in signature_list:                   
-                            if verify_signature(self.key_server, tester.addr, tester.port, serialized_state, signature):
-                                logging.debug(f"[{self.addr}:{self.port}] Signature verified for ready from {tester.addr}:{tester.port}")
-                                self.received_ready_cnt += 1
+                    # Verifying each signature in the signature_list
+                    for sender in sender_list:
+                        # sender_list contains dictionaries with 'addr' and 'port'
+                        if verify_signature(self.key_server, sender['addr'], sender['port'], None, signature_list[sender_list.index(sender)]):
+                            logging.debug(f"[{self.addr}:{self.port}] Signature verified for ready from {sender['addr']}:{sender['port']}")
+                            self.received_ready_cnt += 1
+                        else:
+                            logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for ready from {sender['addr']}:{sender['port']}")
+                    
+                    # If enough 'ready' messages are received, proceed to send the sup message
+                    if self.received_ready_cnt >= 3 and self.sent_sup is False:
+                        for tester in self.testers_list:
+                            tester_identity = {'addr': tester.addr, 'port': tester.port}
+
+                            # Compare the tester's identity with entries in sender_list
+                            if tester_identity not in sender_list:
+                                # Tester is not in sender_list, send 'sup' with self.model_state
+                                logging.debug(f"[{self.addr}:{self.port}] Sending sup with self.model_state to {tester.addr}:{tester.port}")
+                                send_sup(signature_list, self.model.state_dict(), self.addr, self.port, tester.addr, tester.port)
                             else:
-                                logging.warning(f"[{self.addr}:{self.port}] Signature verification failed for ready from {tester.addr}:{tester.port}")
+                                # Tester is in sender_list, send 'sup' with None
+                                logging.debug(f"[{self.addr}:{self.port}] Sending sup with None to {tester.addr}:{tester.port}")
+                                send_sup(signature_list, None, self.addr, self.port, tester.addr, tester.port)
+                        self.sent_sup = True
              
+                elif command['type'] == 'sup':
+                    signature_list = command['signature_list']
+                    sender_addr = command['addr']   # Tester's addr
+                    sender_port = command['port']   # Tester's port
+                    model_update = command['model_update']  # The model update being delivered
+                    logging.debug(f"[{self.addr}:{self.port}] Received sup message from {sender_addr}:{sender_port} ...")
 
+                    self.received_sup_cnt += 1
+                    f = (len(self.testers_list) - 1) // 3  # Calculate f based on the system size (3f+1 model)
+
+                    ## TODO: If the number of received sup msgs is no more than 2f+1, resend sup msg. 
+                    if self.received_sup_cnt > 2*f + 1:
+                        logging.debug(f"[{self.addr}:{self.port}] Delivered!!")
+                        self.delivered = True
+                        self.set_delivered_flag()
+                   
                 elif command['type'] == 'global_model_update':
                     global_model_state = command['model']
                     self.model.load_state_dict(global_model_state)
