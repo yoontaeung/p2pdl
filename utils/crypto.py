@@ -2,6 +2,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 import logging
+import pickle
 
 class KeyServer:
     def __init__(self):
@@ -57,30 +58,72 @@ def sign_data(private_key, data):
     # logging.info(f"Data signed. Signature: {signature.hex()}")
     return signature
 
-def verify_signature(key_server, addr, port, serialized_data, signature):
+def verify_signature_2(key_server, addr, port, data, signature):
+    return True
+
+def verify_signature(key_server, addr, port, data, signature):
     """
     Verify the signature of the serialized data using the sender's public key retrieved from the key server.
     """
-    # logging.info(f"Starting signature verification for {addr}:{port}")
+    logging.debug(f"Starting signature verification for {addr}:{port}")
     
     # Fetch the public key from the key server
-    # public_key = key_server.get_key(addr, port)
-    # if not public_key:
-    #     logging.error(f"Public key for {addr}:{port} not found.")
-    #     logging.info(f"Key Server contents: {key_server.get_all_keys()}")
-    #     return False
+    public_key = key_server.get_key(addr, port)
+    if not public_key:
+        logging.error(f"Public key for {addr}:{port} not found.")
+        logging.debug(f"Key Server contents: {key_server.get_all_keys()}")
+        return False
 
-    # try:
-    #     # Attempt to verify the signature
-    #     public_key.verify(
-    #         signature,
-    #         serialized_data,  # Use the serialized data directly without re-serializing
-    #         ec.ECDSA(hashes.SHA256())
-    #     )
-    #     # logging.info(f"Signature successfully verified for {addr}:{port}")
-    #     return True
-    # except Exception as e:
-    #     logging.error(f"Signature verification failed for {addr}:{port}: {e}")
-    #     # logging.info(f"Signature: {signature.hex()}, Data length: {len(serialized_data)}")
-    #     return False
-    return True
+    # Ensure the data is serialized if it is not already in bytes format
+    if data is None:
+        logging.error(f"Cannot verify signature: data is None for {addr}:{port}")
+        return False
+
+    if not isinstance(data, bytes):
+        try:
+            # If the data is not bytes, serialize it
+            data = pickle.dumps(data)
+        except Exception as e:
+            logging.error(f"Failed to serialize data for {addr}:{port}: {e}")
+            return False
+
+    try:
+        # Attempt to verify the signature
+        public_key.verify(
+            signature,
+            data,  # Use the serialized data directly
+            ec.ECDSA(hashes.SHA256())
+        )
+        logging.debug(f"Signature successfully verified for {addr}:{port}")
+        return True
+    except Exception as e:
+        logging.error(f"Signature verification failed for {addr}:{port}: {e}")
+        return False
+    
+# def verify_signature(key_server, addr, port, serialized_data, signature):
+#     """
+#     Verify the signature of the serialized data using the sender's public key retrieved from the key server.
+#     """
+#     logging.info(f"Starting signature verification for {addr}:{port}")
+    
+#     # Fetch the public key from the key server
+#     public_key = key_server.get_key(addr, port)
+#     if not public_key:
+#         logging.error(f"Public key for {addr}:{port} not found.")
+#         logging.debug(f"Key Server contents: {key_server.get_all_keys()}")
+#         return False
+
+#     try:
+#         # Attempt to verify the signature
+#         public_key.verify(
+#             signature,
+#             serialized_data,  # Use the serialized data directly without re-serializing
+#             ec.ECDSA(hashes.SHA256())
+#         )
+#         # logging.info(f"Signature successfully verified for {addr}:{port}")
+#         return True
+#     except Exception as e:
+#         logging.error(f"Signature verification failed for {addr}:{port}: {e}")
+#         # logging.info(f"Signature: {signature.hex()}, Data length: {len(serialized_data)}")
+#         return False
+#     return True

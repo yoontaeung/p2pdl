@@ -20,13 +20,13 @@ def main():
 
     # Initialize nodes with the model and data loaders, with different ports
     # Number of testers n >= 3f + 1
-    node1 = Node(model=MLP(),data=data_loaders[0], key_server=key_server, addr="127.0.0.1",port=6001)
-    node2 = Node(model=MLP(),data=data_loaders[1], key_server=key_server, addr="127.0.0.1",port=6002)
-    node3 = Node(model=MLP(),data=data_loaders[2], key_server=key_server, addr="127.0.0.1",port=6003)
-    node4 = Node(model=MLP(),data=data_loaders[3], key_server=key_server, addr="127.0.0.1",port=6004)
-    node5 = Node(model=MLP(),data=data_loaders[4], key_server=key_server, addr="127.0.0.1",port=6005)
-    node6 = Node(model=MLP(),data=data_loaders[5], key_server=key_server, addr="127.0.0.1",port=6006)
-    node7 = Node(model=MLP(),data=data_loaders[6], key_server=key_server, addr="127.0.0.1",port=6007)
+    node1 = Node(model=MLP(),data=data_loaders[0], key_server=key_server, addr="127.0.0.1",port=5001)
+    node2 = Node(model=MLP(),data=data_loaders[1], key_server=key_server, addr="127.0.0.1",port=5002)
+    node3 = Node(model=MLP(),data=data_loaders[2], key_server=key_server, addr="127.0.0.1",port=5003)
+    node4 = Node(model=MLP(),data=data_loaders[3], key_server=key_server, addr="127.0.0.1",port=5004)
+    node5 = Node(model=MLP(),data=data_loaders[4], key_server=key_server, addr="127.0.0.1",port=5005)
+    node6 = Node(model=MLP(),data=data_loaders[5], key_server=key_server, addr="127.0.0.1",port=5006)
+    node7 = Node(model=MLP(),data=data_loaders[6], key_server=key_server, addr="127.0.0.1",port=5007)
     
     for node in [node1, node2, node3, node4, node5, node6, node7]:
         node.start()
