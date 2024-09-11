@@ -31,3 +31,8 @@ python main.py
 ## Contributing
 
 Contributions are welcome!
+
+FYI. Here is our deck at NEAR AI Hackathon.
+[P2PDL deck .pdf](https://github.com/user-attachments/files/16964140/P2PDL.deck.pdf)
+
+
